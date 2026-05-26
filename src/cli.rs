@@ -9,22 +9,32 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Create a new session
+    /// Enter the canonical workspace session (create or attach)
+    Enter {
+        /// Session name (derived from workspace if omitted)
+        name: Option<String>,
+
+        /// Command to run if creating (defaults to $SHELL)
+        #[arg(last = true)]
+        command: Vec<String>,
+    },
+
+    /// Open a new durable terminal (auto-numbered)
     New {
-        /// Session name
-        name: String,
+        /// Base session name (derived from workspace if omitted)
+        name: Option<String>,
 
         /// Command to run (defaults to $SHELL)
         #[arg(last = true)]
         command: Vec<String>,
     },
 
-    /// Enter a persistent session (create or attach)
-    Enter {
-        /// Session name (derived from workspace if omitted)
-        name: Option<String>,
+    /// Create a session without attaching
+    Create {
+        /// Session name
+        name: String,
 
-        /// Command to run if creating (defaults to $SHELL)
+        /// Command to run (defaults to $SHELL)
         #[arg(last = true)]
         command: Vec<String>,
     },

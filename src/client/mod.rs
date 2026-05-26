@@ -66,11 +66,37 @@ pub fn derive_session_name() -> Result<String> {
     }
 }
 
-fn find_session<'a>(
-    sessions: &'a [crate::daemon::protocol::SessionInfo],
-    name: &str,
-) -> Option<&'a crate::daemon::protocol::SessionInfo> {
-    sessions.iter().find(|s| s.name == name)
+async fn get_session_list() -> Result<Vec<crate::daemon::protocol::SessionInfo>> {
+    match launch::try_connect().await {
+        Ok(stream) => {
+            let (reader, writer) = stream.into_split();
+            let mut reader = BufReader::new(reader);
+            let mut writer = BufWriter::new(writer);
+            write_control(&mut writer, &Request::ListSessions).await?;
+            match read_frame(&mut reader).await? {
+                Some(Frame::Control(payload)) => {
+                    let response: Response = serde_json::from_slice(&payload)?;
+                    match response {
+                        Response::SessionList { sessions } => Ok(sessions),
+                        _ => Ok(Vec::new()),
+                    }
+                }
+                _ => Ok(Vec::new()),
+            }
+        }
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
+fn next_available_name(sessions: &[crate::daemon::protocol::SessionInfo], base: &str) -> String {
+    let mut n = 1;
+    loop {
+        let candidate = format!("{}.{}", base, n);
+        if !sessions.iter().any(|s| s.name == candidate) {
+            return candidate;
+        }
+        n += 1;
+    }
 }
 
 pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result<()> {
@@ -92,35 +118,14 @@ pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result
         }
     }
 
-    // Check if session exists and whether someone is attached
-    let session_info = match launch::try_connect().await {
-        Ok(stream) => {
-            let (reader, writer) = stream.into_split();
-            let mut reader = BufReader::new(reader);
-            let mut writer = BufWriter::new(writer);
-            write_control(&mut writer, &Request::ListSessions).await?;
-            match read_frame(&mut reader).await? {
-                Some(Frame::Control(payload)) => {
-                    let response: Response = serde_json::from_slice(&payload)?;
-                    match response {
-                        Response::SessionList { sessions } => {
-                            find_session(&sessions, &name).map(|s| (true, s.attached))
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
-        }
-        Err(_) => None,
-    };
+    let sessions = get_session_list().await?;
+    let session = sessions.iter().find(|s| s.name == name);
 
-    match session_info {
+    match session.map(|s| s.attached) {
         None => {
-            // Session doesn't exist — create it
             create_session(name.clone(), command).await?;
         }
-        Some((_, true)) => {
+        Some(true) => {
             eprint!("session '{}' is in use. take over? [y/n] ", name);
             if read_yn() {
                 take_over(name.clone()).await?;
@@ -128,11 +133,23 @@ pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result
                 eprintln!();
             }
         }
-        Some((_, false)) => {
-            // Session exists, no one attached — just attach
-        }
+        Some(false) => {}
     }
 
+    attach::attach(name).await?;
+    Ok(())
+}
+
+pub async fn new_session(name: Option<String>, command: Option<Vec<String>>) -> Result<()> {
+    let base = match name {
+        Some(n) => n,
+        None => derive_session_name()?,
+    };
+
+    let sessions = get_session_list().await?;
+    let name = next_available_name(&sessions, &base);
+
+    create_session(name.clone(), command).await?;
     attach::attach(name).await?;
     Ok(())
 }

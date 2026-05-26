@@ -11,14 +11,6 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::New { name, command } => {
-            let cmd = if command.is_empty() {
-                None
-            } else {
-                Some(command)
-            };
-            client::create_session(name, cmd).await?;
-        }
         Command::Enter { name, command } => {
             let cmd = if command.is_empty() {
                 None
@@ -26,6 +18,22 @@ async fn main() -> anyhow::Result<()> {
                 Some(command)
             };
             client::enter(name, cmd).await?;
+        }
+        Command::New { name, command } => {
+            let cmd = if command.is_empty() {
+                None
+            } else {
+                Some(command)
+            };
+            client::new_session(name, cmd).await?;
+        }
+        Command::Create { name, command } => {
+            let cmd = if command.is_empty() {
+                None
+            } else {
+                Some(command)
+            };
+            client::create_session(name, cmd).await?;
         }
         Command::Ls => {
             client::list_sessions().await?;
