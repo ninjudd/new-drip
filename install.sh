@@ -24,7 +24,6 @@ if [ -n "$TRIP_SESSION" ]; then
 fi'
 
 MARKER="# trip shell hook"
-OLD_MARKER="# drip shell hook"
 
 resolve_path() {
     # Follow symlinks portably (macOS lacks readlink -f)
@@ -38,11 +37,9 @@ resolve_path() {
 remove_old_hook() {
     file="$(resolve_path "$1")"
     [ -f "$file" ] || return 0
-    for marker in "$MARKER" "$OLD_MARKER"; do
-        if grep -qF "$marker" "$file"; then
-            sed -i '' "/$marker/,/^$/d" "$file"
-        fi
-    done
+    if grep -qF "$MARKER" "$file"; then
+        sed -i '' "/$MARKER/,/^$/d" "$file"
+    fi
 }
 
 install_hook() {
