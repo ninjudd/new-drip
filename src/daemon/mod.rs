@@ -1,5 +1,7 @@
+pub mod diff;
 pub mod procinfo;
 pub mod protocol;
+pub mod recording;
 pub mod session;
 
 use std::collections::HashMap;
@@ -18,7 +20,8 @@ use protocol::{
     read_frame, write_control, write_frame, Frame, Request, Response, ScreenEntry, SessionInfo,
     SessionState, FRAME_DATA,
 };
-use session::{RecordEvent, Session, SessionCommand};
+use recording::RecordEvent;
+use session::{Session, SessionCommand};
 
 fn format_events(events: &[RecordEvent], raw: bool) -> String {
     if raw {

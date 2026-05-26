@@ -1,8 +1,5 @@
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use serde::{Deserialize, Serialize};
 
 use anyhow::Result;
 use nix::libc;
@@ -13,7 +10,9 @@ use tokio::io::unix::AsyncFd;
 use tokio::io::Interest;
 use tokio::sync::{broadcast, mpsc, Notify};
 
+use super::diff;
 use super::protocol::SessionState;
+use super::recording::{self, RecordEvent};
 
 pub struct Session {
     pub name: String,
@@ -27,131 +26,6 @@ pub struct Session {
     pub input_tx: mpsc::Sender<SessionCommand>,
     pub detach_notify: Arc<Notify>,
     parser: std::sync::Arc<std::sync::Mutex<vt100::Parser>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum RecordEvent {
-    #[serde(rename = "output")]
-    Output { t: f64, data: String },
-    #[serde(rename = "input")]
-    Input { t: f64, data: String },
-    #[serde(rename = "resize")]
-    Resize { t: f64, cols: u16, rows: u16 },
-    #[serde(rename = "screen")]
-    Screen { t: f64, text: String },
-}
-
-impl RecordEvent {
-    pub fn timestamp(&self) -> f64 {
-        match self {
-            RecordEvent::Output { t, .. } => *t,
-            RecordEvent::Input { t, .. } => *t,
-            RecordEvent::Resize { t, .. } => *t,
-            RecordEvent::Screen { t, .. } => *t,
-        }
-    }
-
-    fn data_len(&self) -> usize {
-        match self {
-            RecordEvent::Output { data, .. } => data.len(),
-            RecordEvent::Input { data, .. } => data.len(),
-            RecordEvent::Resize { .. } => 8,
-            RecordEvent::Screen { text, .. } => text.len(),
-        }
-    }
-
-    pub fn is_screen(&self) -> bool {
-        matches!(self, RecordEvent::Screen { .. })
-    }
-}
-
-fn append_event(log_path: &std::path::Path, event: &RecordEvent) {
-    if let Ok(line) = serde_json::to_string(event) {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-        {
-            let _ = writeln!(f, "{}", line);
-        }
-    }
-}
-
-fn is_decorative(line: &str) -> bool {
-    let trimmed = line.trim();
-    !trimmed.is_empty() && trimmed.chars().all(|c| matches!(c, '─' | '━' | '═' | '│' | '┃' | '║' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '╔' | '╗' | '╚' | '╝' | '╠' | '╣' | '╦' | '╩' | '╬' | '▔' | '▁' | '─' | ' '))
-}
-
-fn clean_screen(text: &str) -> String {
-    let mut out = String::new();
-    let mut prev_empty = false;
-    for line in text.lines() {
-        if is_decorative(line) {
-            continue;
-        }
-        let empty = line.trim().is_empty();
-        if empty && prev_empty {
-            continue;
-        }
-        if !out.is_empty() {
-            out.push('\n');
-        }
-        out.push_str(line);
-        prev_empty = empty;
-    }
-    out
-}
-
-fn diff_inserted_lines(old: &str, new: &str) -> Vec<String> {
-    let old_lines: Vec<&str> = old.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
-
-    let m = old_lines.len();
-    let n = new_lines.len();
-    let mut dp = vec![vec![0u32; n + 1]; m + 1];
-    for i in 1..=m {
-        for j in 1..=n {
-            if old_lines[i - 1] == new_lines[j - 1] {
-                dp[i][j] = dp[i - 1][j - 1] + 1;
-            } else {
-                dp[i][j] = dp[i - 1][j].max(dp[i][j - 1]);
-            }
-        }
-    }
-
-    let mut inserted = Vec::new();
-    let mut i = m;
-    let mut j = n;
-    while i > 0 && j > 0 {
-        if old_lines[i - 1] == new_lines[j - 1] {
-            i -= 1;
-            j -= 1;
-        } else if dp[i - 1][j] > dp[i][j - 1] {
-            i -= 1;
-        } else if dp[i][j - 1] > dp[i - 1][j] {
-            inserted.push(new_lines[j - 1].to_string());
-            j -= 1;
-        } else {
-            i -= 1;
-            j -= 1;
-        }
-    }
-    while j > 0 {
-        inserted.push(new_lines[j - 1].to_string());
-        j -= 1;
-    }
-
-    inserted.reverse();
-    inserted
-}
-
-fn now_ts() -> f64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64()
 }
 
 pub enum SessionCommand {
@@ -238,10 +112,7 @@ impl Session {
                         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
                     });
 
-                let created_at = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
+                let created_at = recording::now_ts() as u64;
 
                 // Set up session directories
                 let screens_dir = crate::common::screens_dir(&name);
@@ -335,8 +206,8 @@ async fn pty_io_loop(
                             Ok(Ok(0)) => break,
                             Ok(Ok(n)) => {
                                 let data = buf[..n].to_vec();
-                                append_event(&log_path, &RecordEvent::Output {
-                                    t: now_ts(),
+                                recording::append_event(&log_path, &RecordEvent::Output {
+                                    t: recording::now_ts(),
                                     data: String::from_utf8_lossy(&data).into_owned(),
                                 });
                                 {
@@ -369,7 +240,7 @@ async fn pty_io_loop(
                         .collect::<Vec<_>>()
                         .join("\n")
                 };
-                let filtered = clean_screen(&screen_text);
+                let filtered = recording::clean_screen(&screen_text);
                 if filtered != last_screen {
                     // Write full snapshot to disk
                     let path = screens_dir.join(format!("{:04}.txt", screen_seq));
@@ -377,12 +248,12 @@ async fn pty_io_loop(
                     screen_seq += 1;
 
                     // Compute diff and append to log file
-                    let inserted = diff_inserted_lines(&last_screen, &filtered);
+                    let inserted = diff::inserted_lines(&last_screen, &filtered);
                     if !inserted.is_empty() {
-                        let diff_text = clean_screen(&inserted.join("\n"));
+                        let diff_text = recording::clean_screen(&inserted.join("\n"));
                         if !diff_text.trim().is_empty() {
-                            append_event(&log_path, &RecordEvent::Screen {
-                                t: now_ts(),
+                            recording::append_event(&log_path, &RecordEvent::Screen {
+                                t: recording::now_ts(),
                                 text: diff_text,
                             });
                         }
@@ -396,8 +267,8 @@ async fn pty_io_loop(
             cmd = input_rx.recv() => {
                 match cmd {
                     Some(SessionCommand::Input(data)) => {
-                        append_event(&log_path, &RecordEvent::Input {
-                            t: now_ts(),
+                        recording::append_event(&log_path, &RecordEvent::Input {
+                            t: recording::now_ts(),
                             data: String::from_utf8_lossy(&data).into_owned(),
                         });
                         let fd = master.get_ref().as_raw_fd();
@@ -406,7 +277,7 @@ async fn pty_io_loop(
                         }
                     }
                     Some(SessionCommand::Resize(cols, rows)) => {
-                        append_event(&log_path, &RecordEvent::Resize { t: now_ts(), cols, rows });
+                        recording::append_event(&log_path, &RecordEvent::Resize { t: recording::now_ts(), cols, rows });
                         let winsize = libc::winsize {
                             ws_row: rows,
                             ws_col: cols,
