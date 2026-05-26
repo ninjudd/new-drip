@@ -512,7 +512,7 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             write_frame(&mut writer, FRAME_DATA, &screen_data).await?;
 
             let result =
-                stream_session(reader, writer, &mut output_rx, &input_tx, &detach_notify, &readonly_flag).await;
+                stream_session(reader, writer, &mut output_rx, &input_tx, &detach_notify, &readonly_flag, sessions.clone(), name.clone()).await;
 
             let mut sessions = sessions.lock().await;
             if let Some(session) = sessions.get_mut(&name) {
@@ -582,9 +582,32 @@ async fn stream_session(
     input_tx: &tokio::sync::mpsc::Sender<SessionCommand>,
     detach_notify: &tokio::sync::Notify,
     readonly_flag: &Arc<std::sync::atomic::AtomicBool>,
+    sessions: Sessions,
+    session_name: String,
 ) -> Result<()> {
+    let mut was_readonly = readonly_flag.load(std::sync::atomic::Ordering::Relaxed);
     loop {
         let readonly = readonly_flag.load(std::sync::atomic::Ordering::Relaxed);
+        if readonly && !was_readonly {
+            // Just got demoted — re-render screen in monochrome
+            let screen_data = {
+                let sessions = sessions.lock().await;
+                sessions.get(&session_name).map(|s| s.screen_contents())
+            };
+            if let Some(data) = screen_data {
+                write_frame(&mut writer, FRAME_DATA, &strip_sgr(&data)).await?;
+            }
+        } else if !readonly && was_readonly {
+            // Got promoted back — re-render with color
+            let screen_data = {
+                let sessions = sessions.lock().await;
+                sessions.get(&session_name).map(|s| s.screen_contents())
+            };
+            if let Some(data) = screen_data {
+                write_frame(&mut writer, FRAME_DATA, &data).await?;
+            }
+        }
+        was_readonly = readonly;
         tokio::select! {
             _ = detach_notify.notified() => {
                 return Ok(());
