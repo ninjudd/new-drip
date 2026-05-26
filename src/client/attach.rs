@@ -126,7 +126,6 @@ pub async fn attach(name: String) -> Result<()> {
     });
 
     let mut stdout = std::io::stdout();
-    let mut stdin_closed = false;
 
     loop {
         tokio::select! {
@@ -146,13 +145,12 @@ pub async fn attach(name: String) -> Result<()> {
                 }
             }
 
-            result = stdin_rx.recv(), if !stdin_closed => {
+            result = stdin_rx.recv() => {
                 match result {
                     Some(data) => {
                         write_frame(&mut writer, FRAME_DATA, &data).await?;
                     }
                     None => {
-                        stdin_closed = true;
                         break;
                     }
                 }

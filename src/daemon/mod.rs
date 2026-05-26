@@ -47,7 +47,7 @@ fn format_events(events: &[RecordEvent], raw: bool) -> String {
 }
 
 fn format_timestamp(t: f64) -> String {
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, UNIX_EPOCH};
     let time = UNIX_EPOCH + Duration::from_secs_f64(t);
     let elapsed = time
         .duration_since(UNIX_EPOCH)
@@ -512,8 +512,8 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
 
         Request::Attach { name, cols, rows } => {
             let mut current_name = name;
-            let mut current_cols = cols;
-            let mut current_rows = rows;
+            let current_cols = cols;
+            let current_rows = rows;
             let mut first = true;
 
             loop {

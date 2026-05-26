@@ -12,11 +12,6 @@ extern "C" {
         buffersize: libc::c_int,
     ) -> libc::c_int;
 
-    fn proc_pidpath(
-        pid: libc::c_int,
-        buffer: *mut libc::c_void,
-        buffersize: u32,
-    ) -> libc::c_int;
 }
 
 #[cfg(target_os = "macos")]
