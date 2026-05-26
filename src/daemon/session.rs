@@ -85,7 +85,9 @@ impl Session {
                     _ => {
                         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
                         let cmd = std::ffi::CString::new(shell.as_str()).unwrap();
-                        let args = vec![cmd.clone()];
+                        let basename = shell.rsplit('/').next().unwrap_or(&shell);
+                        let login_name = std::ffi::CString::new(format!("-{}", basename)).unwrap();
+                        let args = vec![login_name];
                         (cmd, args)
                     }
                 };
