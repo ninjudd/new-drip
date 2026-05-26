@@ -25,6 +25,7 @@ pub struct Session {
     pub output_tx: broadcast::Sender<Vec<u8>>,
     pub input_tx: mpsc::Sender<SessionCommand>,
     pub detach_notify: Arc<Notify>,
+    pub writer_attached: bool,
     parser: std::sync::Arc<std::sync::Mutex<vt100::Parser>>,
 }
 
@@ -137,6 +138,7 @@ impl Session {
                     output_tx,
                     input_tx,
                     detach_notify: Arc::new(Notify::new()),
+                    writer_attached: false,
                     parser,
                 })
             }

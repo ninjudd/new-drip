@@ -84,11 +84,11 @@ pub async fn attach(name: String) -> Result<()> {
     )
     .await?;
 
-    match read_frame(&mut reader).await? {
+    let readonly = match read_frame(&mut reader).await? {
         Some(Frame::Control(payload)) => {
             let response: Response = serde_json::from_slice(&payload)?;
             match response {
-                Response::Attached => {}
+                Response::Attached { readonly } => readonly,
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);
                 }
@@ -96,6 +96,10 @@ pub async fn attach(name: String) -> Result<()> {
             }
         }
         _ => anyhow::bail!("unexpected frame"),
+    };
+
+    if readonly {
+        eprintln!("[read-only]");
     }
 
     let _guard = RawModeGuard::enter();
