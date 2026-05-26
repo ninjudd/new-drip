@@ -73,6 +73,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Kill { name } => {
             client::kill_session(name).await?;
         }
+        Command::Shutdown { yes } => {
+            client::shutdown(yes).await?;
+        }
         Command::Daemon => {
             daemon::run().await?;
         }

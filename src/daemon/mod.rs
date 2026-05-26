@@ -459,6 +459,19 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             }
         }
 
+        Request::Shutdown => {
+            let mut sessions = sessions.lock().await;
+            for session in sessions.values() {
+                nix::sys::signal::kill(session.pid, nix::sys::signal::Signal::SIGHUP).ok();
+            }
+            sessions.clear();
+            drop(sessions);
+            let _ = std::fs::remove_file(socket_path());
+            write_control(&mut writer, &Response::Ok).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            std::process::exit(0);
+        }
+
         Request::Attach { name, cols, rows } => {
             let (screen_data, mut output_rx, input_tx, detach_notify, readonly, readonly_flag) = {
                 let mut sessions = sessions.lock().await;

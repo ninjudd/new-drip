@@ -103,6 +103,13 @@ pub enum Command {
         name: String,
     },
 
+    /// Stop the daemon and kill all sessions
+    Shutdown {
+        /// Skip confirmation
+        #[arg(long)]
+        yes: bool,
+    },
+
     /// Start the daemon (typically auto-started)
     #[command(hide = true)]
     Daemon,

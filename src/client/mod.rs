@@ -418,6 +418,45 @@ pub async fn detach_session(name: String) -> Result<()> {
     Ok(())
 }
 
+pub async fn shutdown(yes: bool) -> Result<()> {
+    if !yes {
+        eprint!("this will kill all sessions. are you sure? [y/n] ");
+        use std::io::Read;
+        let mut buf = [0u8; 1];
+        std::io::stdin().read_exact(&mut buf).ok();
+        if buf[0] != b'y' && buf[0] != b'Y' {
+            return Ok(());
+        }
+    }
+
+    let stream = match launch::try_connect().await {
+        Ok(s) => s,
+        Err(_) => {
+            println!("daemon not running");
+            return Ok(());
+        }
+    };
+    let (reader, writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    let mut writer = BufWriter::new(writer);
+
+    write_control(&mut writer, &Request::Shutdown).await?;
+
+    match read_frame(&mut reader).await? {
+        Some(Frame::Control(payload)) => {
+            let response: Response = serde_json::from_slice(&payload)?;
+            match response {
+                Response::Ok => println!("daemon stopped"),
+                Response::Error { message } => anyhow::bail!("{}", message),
+                _ => anyhow::bail!("unexpected response"),
+            }
+        }
+        _ => println!("daemon stopped"),
+    }
+
+    Ok(())
+}
+
 pub async fn kill_session(name: String) -> Result<()> {
     let stream = launch::connect().await?;
     let (reader, writer) = stream.into_split();

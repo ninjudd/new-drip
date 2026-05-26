@@ -49,6 +49,7 @@ pub enum Request {
     KillSession {
         name: String,
     },
+    Shutdown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
