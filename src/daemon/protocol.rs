@@ -22,6 +22,8 @@ pub enum Request {
         name: String,
         cols: u16,
         rows: u16,
+        #[serde(default)]
+        env: HashMap<String, String>,
     },
     GetScreen {
         name: String,
@@ -46,6 +48,8 @@ pub enum Request {
     },
     TakeOver {
         name: String,
+        #[serde(default)]
+        env: HashMap<String, String>,
     },
     SwitchSession {
         from: String,

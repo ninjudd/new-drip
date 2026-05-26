@@ -24,3 +24,7 @@ pub fn screens_dir(name: &str) -> PathBuf {
 pub fn log_path(name: &str) -> PathBuf {
     session_dir(name).join("log.jsonl")
 }
+
+pub fn terminal_env_path(name: &str) -> PathBuf {
+    session_dir(name).join("terminal.env")
+}

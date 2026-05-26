@@ -64,11 +64,6 @@ impl Session {
 
                 unistd::setsid().ok();
                 std::env::set_current_dir(&cwd).ok();
-                std::env::set_var("DRIP_SESSION", &name);
-                std::env::set_var("TERM", "xterm-256color");
-                for (key, val) in &env {
-                    std::env::set_var(key, val);
-                }
 
                 // Ensure the slave has ONLCR set so \n → \r\n
                 if let Ok(mut attrs) = termios::tcgetattr(&slave) {
@@ -105,8 +100,26 @@ impl Session {
                     }
                 };
 
+                let filtered_env_keys: &[&str] = &[
+                    "TERM_PROGRAM",
+                    "TERM_PROGRAM_VERSION",
+                    "COLORTERM",
+                    "LC_TERMINAL",
+                    "LC_TERMINAL_VERSION",
+                ];
+                let mut env_vars: Vec<std::ffi::CString> = std::env::vars()
+                    .filter(|(k, _)| !filtered_env_keys.contains(&k.as_str()))
+                    .filter(|(k, _)| k != "TERM" && k != "DRIP_SESSION")
+                    .map(|(k, v)| std::ffi::CString::new(format!("{}={}", k, v)).unwrap())
+                    .collect();
+                env_vars.push(std::ffi::CString::new(format!("DRIP_SESSION={}", name)).unwrap());
+                env_vars.push(std::ffi::CString::new("TERM=xterm-256color").unwrap());
+                for (key, val) in &env {
+                    env_vars.push(std::ffi::CString::new(format!("{}={}", key, val)).unwrap());
+                }
+
                 eprintln!("drip · {}", name);
-                unistd::execvp(&cmd, &args).ok();
+                unistd::execve(&cmd, &args, &env_vars).ok();
                 std::process::exit(1);
             }
             ForkResult::Parent { child } => {

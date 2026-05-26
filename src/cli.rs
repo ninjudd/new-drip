@@ -120,6 +120,10 @@ pub enum Command {
         yes: bool,
     },
 
+    /// Initialize shell environment (called from precmd)
+    #[command(hide = true)]
+    Init,
+
     /// Start the daemon (typically auto-started)
     #[command(hide = true)]
     Daemon,

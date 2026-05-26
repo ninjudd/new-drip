@@ -17,10 +17,15 @@ const TERMINAL_ENV_VARS: &[&str] = &[
     "LC_TERMINAL_VERSION",
 ];
 
-fn terminal_env() -> HashMap<String, String> {
+pub fn terminal_env() -> HashMap<String, String> {
     TERMINAL_ENV_VARS
         .iter()
         .filter_map(|&key| std::env::var(key).ok().map(|val| (key.to_string(), val)))
+        .filter(|(key, val)| !(key == "TERM_PROGRAM" && val == "Apple_Terminal"))
+        .filter(|(key, _)| {
+            key != "TERM_PROGRAM_VERSION"
+                || std::env::var("TERM_PROGRAM").ok().as_deref() != Some("Apple_Terminal")
+        })
         .collect()
 }
 
@@ -489,7 +494,14 @@ async fn take_over(name: String) -> Result<()> {
     let mut reader = BufReader::new(reader);
     let mut writer = BufWriter::new(writer);
 
-    write_control(&mut writer, &Request::TakeOver { name }).await?;
+    write_control(
+        &mut writer,
+        &Request::TakeOver {
+            name,
+            env: terminal_env(),
+        },
+    )
+    .await?;
 
     match read_frame(&mut reader).await? {
         Some(Frame::Control(payload)) => {

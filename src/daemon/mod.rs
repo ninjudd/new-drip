@@ -15,7 +15,7 @@ use tokio::io::{BufReader, BufWriter};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
-use crate::common::{drip_dir, lock_path, socket_path};
+use crate::common::{drip_dir, lock_path, socket_path, terminal_env_path};
 use protocol::{
     read_frame, write_control, write_frame, Frame, Request, Response, ScreenEntry, SessionInfo,
     SessionState, FRAME_DATA,
@@ -171,9 +171,10 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 return Ok(());
             }
 
-            let session = Session::spawn(name.clone(), command, cwd, 80, 24, env)?;
+            let session = Session::spawn(name.clone(), command, cwd, 80, 24, env.clone())?;
             let pid = session.pid.as_raw() as u32;
             sessions.insert(name.clone(), session);
+            write_terminal_env(&name, &env);
 
             write_control(&mut writer, &Response::SessionCreated { name, pid }).await?;
         }
@@ -456,9 +457,10 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             let mut sessions = sessions.lock().await;
 
             if !sessions.contains_key(&to) {
-                match Session::spawn(to.clone(), command, cwd, 80, 24, env) {
+                match Session::spawn(to.clone(), command, cwd, 80, 24, env.clone()) {
                     Ok(session) => {
                         sessions.insert(to.clone(), session);
+                        write_terminal_env(&to, &env);
                     }
                     Err(e) => {
                         write_control(
@@ -500,7 +502,7 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             }
         }
 
-        Request::TakeOver { name } => {
+        Request::TakeOver { name, env } => {
             let mut sessions = sessions.lock().await;
             if let Some(session) = sessions.get_mut(&name) {
                 if let Some(flag) = session.writer_readonly_flag.take() {
@@ -508,6 +510,7 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     session.writer_stack.push(flag);
                 }
                 session.writer_attached = false;
+                write_terminal_env(&name, &env);
                 write_control(&mut writer, &Response::Ok).await?;
             } else {
                 write_control(
@@ -576,7 +579,12 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             std::process::exit(0);
         }
 
-        Request::Attach { name, cols, rows } => {
+        Request::Attach {
+            name,
+            cols,
+            rows,
+            env: client_env,
+        } => {
             let mut current_name = name;
             let current_cols = cols;
             let current_rows = rows;
@@ -613,6 +621,7 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     if !readonly {
                         session.writer_attached = true;
                         session.writer_readonly_flag = Some(readonly_flag.clone());
+                        write_terminal_env(&current_name, &client_env);
                         let _ = session
                             .input_tx
                             .send(SessionCommand::Resize(current_cols, current_rows))
@@ -744,6 +753,28 @@ fn strip_sgr(data: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+fn write_terminal_env(name: &str, env: &HashMap<String, String>) {
+    let path = terminal_env_path(name);
+    let content: String = env
+        .iter()
+        .map(|(k, v)| format!("export {}={}\n", k, shell_escape(v)))
+        .collect();
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, &content).is_ok() {
+        std::fs::rename(&tmp, &path).ok();
+    }
+}
+
+fn shell_escape(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/')
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
 }
 
 fn is_numbered_session(name: &str) -> bool {

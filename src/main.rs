@@ -88,6 +88,15 @@ async fn main() -> anyhow::Result<()> {
         Command::Shutdown { yes } => {
             client::shutdown(yes).await?;
         }
+        Command::Init => {
+            if let Ok(name) = std::env::var("DRIP_SESSION") {
+                let path = common::terminal_env_path(&name);
+                if path.exists() {
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    print!("{}", content);
+                }
+            }
+        }
         Command::Daemon => {
             daemon::run().await?;
         }

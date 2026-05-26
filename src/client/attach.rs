@@ -78,6 +78,7 @@ pub async fn attach(name: String) -> Result<()> {
             name: name.clone(),
             cols,
             rows,
+            env: super::terminal_env(),
         },
     )
     .await?;
