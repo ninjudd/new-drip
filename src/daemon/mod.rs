@@ -15,8 +15,8 @@ use tokio::sync::Mutex;
 
 use crate::common::{drip_dir, lock_path, socket_path};
 use protocol::{
-    read_frame, write_control, write_frame, Frame, Request, Response, SessionInfo, SessionState,
-    FRAME_DATA,
+    read_frame, write_control, write_frame, Frame, Request, Response, ScreenEntry, SessionInfo,
+    SessionState, FRAME_DATA,
 };
 use session::{RecordEvent, Session, SessionCommand};
 
@@ -42,18 +42,26 @@ fn diff_inserted_lines(old: &str, new: &str) -> Vec<String> {
     let mut inserted = Vec::new();
     let mut i = m;
     let mut j = n;
-    while j > 0 {
-        if i > 0 && old_lines[i - 1] == new_lines[j - 1] {
+    while i > 0 && j > 0 {
+        if old_lines[i - 1] == new_lines[j - 1] {
             i -= 1;
             j -= 1;
-        } else if i > 0 && dp[i - 1][j] >= dp[i][j - 1] {
-            // Deletion (old line removed) — skip
+        } else if dp[i - 1][j] > dp[i][j - 1] {
+            // Deletion — skip
             i -= 1;
-        } else {
+        } else if dp[i][j - 1] > dp[i - 1][j] {
             // Insertion — this line is new
             inserted.push(new_lines[j - 1].to_string());
             j -= 1;
+        } else {
+            // Modification (line changed in place) — suppress both
+            i -= 1;
+            j -= 1;
         }
+    }
+    while j > 0 {
+        inserted.push(new_lines[j - 1].to_string());
+        j -= 1;
     }
 
     inserted.reverse();
@@ -262,6 +270,62 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 })
                 .collect();
             write_control(&mut writer, &Response::SessionList { sessions: list }).await?;
+        }
+
+        Request::ListScreens { name } => {
+            let result = {
+                let sessions = sessions.lock().await;
+                sessions.get(&name).map(|s| {
+                    let rec = s.recording.lock().unwrap();
+                    rec.screen_events()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, e)| {
+                            let (t, lines) = match e {
+                                RecordEvent::Screen { t, text } => (*t, text.lines().count()),
+                                _ => (0.0, 0),
+                            };
+                            ScreenEntry { index: i, timestamp: format_timestamp(t), lines }
+                        })
+                        .collect::<Vec<_>>()
+                })
+            };
+            match result {
+                Some(screens) => {
+                    write_control(&mut writer, &Response::ScreenList { screens }).await?;
+                }
+                None => {
+                    write_control(&mut writer, &Response::Error {
+                        message: format!("session '{}' not found", name),
+                    }).await?;
+                }
+            }
+        }
+
+        Request::GetScreenAt { name, index } => {
+            let result = {
+                let sessions = sessions.lock().await;
+                sessions.get(&name).map(|s| {
+                    let rec = s.recording.lock().unwrap();
+                    let events = rec.screen_events();
+                    events.get(index).cloned()
+                })
+            };
+            match result {
+                Some(Some(RecordEvent::Screen { text, .. })) => {
+                    write_control(&mut writer, &Response::ScreenData { content: text }).await?;
+                }
+                Some(_) => {
+                    write_control(&mut writer, &Response::Error {
+                        message: format!("screen {} not found", index),
+                    }).await?;
+                }
+                None => {
+                    write_control(&mut writer, &Response::Error {
+                        message: format!("session '{}' not found", name),
+                    }).await?;
+                }
+            }
         }
 
         Request::GetScreen { name, watch } => {

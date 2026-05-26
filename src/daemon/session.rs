@@ -103,6 +103,10 @@ impl Recording {
     pub fn all_events(&self) -> Vec<RecordEvent> {
         self.events.iter().cloned().collect()
     }
+
+    pub fn screen_events(&self) -> Vec<RecordEvent> {
+        self.events.iter().filter(|e| matches!(e, RecordEvent::Screen { .. })).cloned().collect()
+    }
 }
 
 fn now_ts() -> f64 {

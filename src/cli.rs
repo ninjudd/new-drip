@@ -41,6 +41,15 @@ pub enum Command {
     /// Print the current session name
     Current,
 
+    /// Browse screen snapshots
+    Screens {
+        /// Session name
+        name: String,
+
+        /// Show a specific snapshot by index
+        index: Option<usize>,
+    },
+
     /// Show current terminal screen
     Screen {
         /// Session name

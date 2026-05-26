@@ -23,6 +23,13 @@ pub enum Request {
         name: String,
         watch: bool,
     },
+    ListScreens {
+        name: String,
+    },
+    GetScreenAt {
+        name: String,
+        index: usize,
+    },
     GetLog {
         name: String,
         raw: bool,
@@ -69,7 +76,15 @@ pub enum Response {
     SessionList { sessions: Vec<SessionInfo> },
     Attached,
     ScreenData { content: String },
+    ScreenList { screens: Vec<ScreenEntry> },
     LogData { content: String },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScreenEntry {
+    pub index: usize,
+    pub timestamp: String,
+    pub lines: usize,
 }
 
 pub async fn write_frame<W: AsyncWrite + Unpin>(
