@@ -40,6 +40,9 @@ pub enum Request {
         name: String,
         data: Vec<u8>,
     },
+    TakeOver {
+        name: String,
+    },
     DetachSession {
         name: String,
     },

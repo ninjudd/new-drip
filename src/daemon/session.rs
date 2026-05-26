@@ -1,4 +1,5 @@
 use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -26,6 +27,7 @@ pub struct Session {
     pub input_tx: mpsc::Sender<SessionCommand>,
     pub detach_notify: Arc<Notify>,
     pub writer_attached: bool,
+    pub writer_readonly_flag: Option<Arc<AtomicBool>>,
     parser: std::sync::Arc<std::sync::Mutex<vt100::Parser>>,
 }
 
@@ -139,6 +141,7 @@ impl Session {
                     input_tx,
                     detach_notify: Arc::new(Notify::new()),
                     writer_attached: false,
+                    writer_readonly_flag: None,
                     parser,
                 })
             }

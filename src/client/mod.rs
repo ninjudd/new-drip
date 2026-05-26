@@ -96,13 +96,12 @@ pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result
             create_session(name.clone(), command).await?;
         }
         Some((_, true)) => {
-            // Session exists and someone is attached — ask what to do
             eprint!("session '{}' is in use. take over? [y/n] ", name);
             use std::io::Read;
             let mut buf = [0u8; 1];
             std::io::stdin().read_exact(&mut buf).ok();
             if buf[0] == b'y' || buf[0] == b'Y' {
-                detach_session(name.clone()).await?;
+                take_over(name.clone()).await?;
             }
         }
         Some((_, false)) => {
@@ -360,6 +359,29 @@ pub async fn send_input(name: String, input: String, raw: bool) -> Result<()> {
                 Response::Error { message } => {
                     anyhow::bail!("{}", message);
                 }
+                _ => anyhow::bail!("unexpected response"),
+            }
+        }
+        _ => anyhow::bail!("unexpected frame"),
+    }
+
+    Ok(())
+}
+
+async fn take_over(name: String) -> Result<()> {
+    let stream = launch::connect().await?;
+    let (reader, writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
+    let mut writer = BufWriter::new(writer);
+
+    write_control(&mut writer, &Request::TakeOver { name }).await?;
+
+    match read_frame(&mut reader).await? {
+        Some(Frame::Control(payload)) => {
+            let response: Response = serde_json::from_slice(&payload)?;
+            match response {
+                Response::Ok => {}
+                Response::Error { message } => anyhow::bail!("{}", message),
                 _ => anyhow::bail!("unexpected response"),
             }
         }
