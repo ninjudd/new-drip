@@ -601,6 +601,14 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
 
                 match result {
                     StreamExit::SwitchTo(target) => {
+                        // Delayed GC — let drip enter exit before checking
+                        let old_name = current_name.clone();
+                        let sessions_gc = sessions.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            let mut sessions = sessions_gc.lock().await;
+                            try_gc_session(&mut sessions, &old_name);
+                        });
                         current_name = target;
                     }
                     StreamExit::Disconnected => break,
