@@ -10,6 +10,31 @@ use crate::daemon::protocol::{
     read_frame, write_control, Frame, Request, Response, SessionState,
 };
 
+fn read_yn() -> bool {
+    use std::os::fd::{AsRawFd, BorrowedFd};
+    use nix::sys::termios::{self, SetArg, LocalFlags};
+
+    let fd = std::io::stdin().as_raw_fd();
+    let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+    let original = termios::tcgetattr(&borrowed).ok();
+
+    if let Some(ref orig) = original {
+        let mut raw = orig.clone();
+        raw.local_flags &= !(LocalFlags::ICANON | LocalFlags::ECHO);
+        termios::tcsetattr(&borrowed, SetArg::TCSANOW, &raw).ok();
+    }
+
+    let mut buf = [0u8; 1];
+    use std::io::Read;
+    std::io::stdin().read_exact(&mut buf).ok();
+
+    if let Some(ref orig) = original {
+        termios::tcsetattr(&borrowed, SetArg::TCSANOW, orig).ok();
+    }
+
+    buf[0] == b'y' || buf[0] == b'Y'
+}
+
 pub fn derive_session_name() -> Result<String> {
     let cwd = std::env::current_dir()?;
     let home = std::env::var("HOME").unwrap_or_default();
@@ -97,11 +122,10 @@ pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result
         }
         Some((_, true)) => {
             eprint!("session '{}' is in use. take over? [y/n] ", name);
-            use std::io::Read;
-            let mut buf = [0u8; 1];
-            std::io::stdin().read_exact(&mut buf).ok();
-            if buf[0] == b'y' || buf[0] == b'Y' {
+            if read_yn() {
                 take_over(name.clone()).await?;
+            } else {
+                eprintln!();
             }
         }
         Some((_, false)) => {
@@ -421,12 +445,11 @@ pub async fn detach_session(name: String) -> Result<()> {
 pub async fn shutdown(yes: bool) -> Result<()> {
     if !yes {
         eprint!("this will kill all sessions. are you sure? [y/n] ");
-        use std::io::Read;
-        let mut buf = [0u8; 1];
-        std::io::stdin().read_exact(&mut buf).ok();
-        if buf[0] != b'y' && buf[0] != b'Y' {
+        if !read_yn() {
+            eprintln!();
             return Ok(());
         }
+        eprintln!();
     }
 
     let stream = match launch::try_connect().await {
