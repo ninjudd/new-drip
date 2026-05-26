@@ -411,6 +411,17 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 }
             }
 
+            // Auto-takeover the target if someone else is attached
+            if let Some(target) = sessions.get_mut(&to) {
+                if target.writer_attached {
+                    if let Some(flag) = target.writer_readonly_flag.take() {
+                        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                        target.writer_stack.push(flag);
+                    }
+                    target.writer_attached = false;
+                }
+            }
+
             // Signal the attach client on `from` to switch
             if let Some(session) = sessions.get(&from) {
                 *session.switch_target.lock().unwrap() = Some(to.clone());
