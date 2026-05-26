@@ -13,7 +13,6 @@ pub fn lock_path() -> PathBuf {
     drip_dir().join("daemon.lock")
 }
 
-
 pub fn session_dir(name: &str) -> PathBuf {
     drip_dir().join("sessions").join(name)
 }

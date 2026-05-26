@@ -127,15 +127,17 @@ pub enum Command {
 
 pub fn parse_duration(s: &str) -> anyhow::Result<f64> {
     let s = s.trim();
-    let (num, unit) = if s.ends_with('s') {
-        (&s[..s.len() - 1], 1.0)
-    } else if s.ends_with('m') {
-        (&s[..s.len() - 1], 60.0)
-    } else if s.ends_with('h') {
-        (&s[..s.len() - 1], 3600.0)
+    let (num, unit) = if let Some(n) = s.strip_suffix('s') {
+        (n, 1.0)
+    } else if let Some(n) = s.strip_suffix('m') {
+        (n, 60.0)
+    } else if let Some(n) = s.strip_suffix('h') {
+        (n, 3600.0)
     } else {
         (s, 1.0)
     };
-    let n: f64 = num.parse().map_err(|_| anyhow::anyhow!("invalid duration: {}", s))?;
+    let n: f64 = num
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid duration: {}", s))?;
     Ok(n * unit)
 }

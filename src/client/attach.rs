@@ -22,7 +22,7 @@ impl RawModeGuard {
     fn enter() -> Option<Self> {
         let fd = std::io::stdin().as_raw_fd();
         let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
-        let original = match termios::tcgetattr(&borrowed) {
+        let original = match termios::tcgetattr(borrowed) {
             Ok(t) => t,
             Err(_) => return None,
         };
@@ -35,12 +35,10 @@ impl RawModeGuard {
             | InputFlags::IXON);
         raw.output_flags &= !OutputFlags::OPOST;
         raw.control_flags |= ControlFlags::CS8;
-        raw.local_flags &= !(LocalFlags::ECHO
-            | LocalFlags::ICANON
-            | LocalFlags::IEXTEN
-            | LocalFlags::ISIG);
+        raw.local_flags &=
+            !(LocalFlags::ECHO | LocalFlags::ICANON | LocalFlags::IEXTEN | LocalFlags::ISIG);
 
-        if termios::tcsetattr(&borrowed, SetArg::TCSAFLUSH, &raw).is_err() {
+        if termios::tcsetattr(borrowed, SetArg::TCSAFLUSH, &raw).is_err() {
             return None;
         }
 
@@ -51,7 +49,7 @@ impl RawModeGuard {
 impl Drop for RawModeGuard {
     fn drop(&mut self) {
         let borrowed = unsafe { BorrowedFd::borrow_raw(self.fd) };
-        let _ = termios::tcsetattr(&borrowed, SetArg::TCSANOW, &self.original);
+        let _ = termios::tcsetattr(borrowed, SetArg::TCSANOW, &self.original);
     }
 }
 

@@ -41,19 +41,22 @@ async fn main() -> anyhow::Result<()> {
         Command::Attach { name } => {
             client::attach::attach(name).await?;
         }
-        Command::Current => {
-            match std::env::var("DRIP_SESSION") {
-                Ok(name) => println!("{}", name),
-                Err(_) => std::process::exit(1),
-            }
-        }
+        Command::Current => match std::env::var("DRIP_SESSION") {
+            Ok(name) => println!("{}", name),
+            Err(_) => std::process::exit(1),
+        },
         Command::Screens { name, index } => {
             client::list_screens(name, index).await?;
         }
         Command::Screen { name, watch } => {
             client::get_screen(name, watch).await?;
         }
-        Command::Log { name, raw, follow, since } => {
+        Command::Log {
+            name,
+            raw,
+            follow,
+            since,
+        } => {
             let since_ts = match since {
                 Some(ref s) => {
                     let secs = cli::parse_duration(s)?;
@@ -73,8 +76,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Detach { name } => {
             let name = match name {
                 Some(n) => n,
-                None => std::env::var("DRIP_SESSION")
-                    .map_err(|_| anyhow::anyhow!("not in a drip session (use: drip detach <name>)"))?,
+                None => std::env::var("DRIP_SESSION").map_err(|_| {
+                    anyhow::anyhow!("not in a drip session (use: drip detach <name>)")
+                })?,
             };
             client::detach_session(name).await?;
         }

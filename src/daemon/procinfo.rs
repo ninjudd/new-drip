@@ -39,7 +39,13 @@ pub fn get_cwd(pid: i32) -> Option<PathBuf> {
     unsafe {
         let mut info: ProcVnodePathInfo = std::mem::zeroed();
         let size = std::mem::size_of::<ProcVnodePathInfo>() as libc::c_int;
-        let ret = proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &mut info as *mut _ as *mut libc::c_void, size);
+        let ret = proc_pidinfo(
+            pid,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            &mut info as *mut _ as *mut libc::c_void,
+            size,
+        );
         if ret <= 0 {
             return None;
         }
@@ -114,7 +120,9 @@ fn get_proc_args(pid: i32) -> Option<Vec<String>> {
     }
 }
 
-const INTERPRETERS: &[&str] = &["node", "python", "python3", "ruby", "perl", "bash", "sh", "zsh"];
+const INTERPRETERS: &[&str] = &[
+    "node", "python", "python3", "ruby", "perl", "bash", "sh", "zsh",
+];
 
 #[cfg(target_os = "macos")]
 pub fn get_name(pid: i32) -> Option<String> {
@@ -175,9 +183,15 @@ pub fn get_foreground_pid(master_fd: i32) -> Option<i32> {
     }
 }
 
-pub fn get_git_branch(cwd: &PathBuf) -> Option<String> {
+pub fn get_git_branch(cwd: &std::path::Path) -> Option<String> {
     let output = std::process::Command::new("git")
-        .args(["-C", &cwd.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+        .args([
+            "-C",
+            &cwd.to_string_lossy(),
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output()
@@ -188,4 +202,3 @@ pub fn get_git_branch(cwd: &PathBuf) -> Option<String> {
         None
     }
 }
-

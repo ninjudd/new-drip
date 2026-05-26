@@ -40,7 +40,13 @@ pub enum SessionCommand {
 }
 
 impl Session {
-    pub fn spawn(name: String, command: Option<Vec<String>>, cwd: String, cols: u16, rows: u16) -> Result<Self> {
+    pub fn spawn(
+        name: String,
+        command: Option<Vec<String>>,
+        cwd: String,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Self> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
             ws_col: cols,
@@ -117,9 +123,7 @@ impl Session {
                 let cmd_str = command
                     .as_ref()
                     .map(|c| c.join(" "))
-                    .unwrap_or_else(|| {
-                        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
-                    });
+                    .unwrap_or_else(|| std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()));
 
                 let created_at = recording::now_ts() as u64;
 
@@ -132,7 +136,15 @@ impl Session {
                 let output_tx_clone = output_tx.clone();
                 let parser_clone = parser.clone();
                 tokio::spawn(async move {
-                    pty_io_loop(async_fd, input_rx, output_tx_clone, parser_clone, screens_dir, log_path).await;
+                    pty_io_loop(
+                        async_fd,
+                        input_rx,
+                        output_tx_clone,
+                        parser_clone,
+                        screens_dir,
+                        log_path,
+                    )
+                    .await;
                 });
 
                 Ok(Session {
@@ -212,10 +224,13 @@ fn take_snapshot(
         if !inserted.is_empty() {
             let diff_text = recording::clean_screen(&inserted.join("\n"));
             if !diff_text.trim().is_empty() {
-                recording::append_event(log_path, &RecordEvent::Screen {
-                    t: recording::now_ts(),
-                    text: diff_text,
-                });
+                recording::append_event(
+                    log_path,
+                    &RecordEvent::Screen {
+                        t: recording::now_ts(),
+                        text: diff_text,
+                    },
+                );
             }
         }
         *last_screen = filtered;

@@ -6,22 +6,20 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tokio::io::{BufReader, BufWriter};
 
-use crate::daemon::protocol::{
-    read_frame, write_control, Frame, Request, Response, SessionState,
-};
+use crate::daemon::protocol::{read_frame, write_control, Frame, Request, Response, SessionState};
 
 fn read_yn() -> bool {
+    use nix::sys::termios::{self, LocalFlags, SetArg};
     use std::os::fd::{AsRawFd, BorrowedFd};
-    use nix::sys::termios::{self, SetArg, LocalFlags};
 
     let fd = std::io::stdin().as_raw_fd();
     let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
-    let original = termios::tcgetattr(&borrowed).ok();
+    let original = termios::tcgetattr(borrowed).ok();
 
     if let Some(ref orig) = original {
         let mut raw = orig.clone();
         raw.local_flags &= !(LocalFlags::ICANON | LocalFlags::ECHO);
-        termios::tcsetattr(&borrowed, SetArg::TCSANOW, &raw).ok();
+        termios::tcsetattr(borrowed, SetArg::TCSANOW, &raw).ok();
     }
 
     let mut buf = [0u8; 1];
@@ -29,7 +27,7 @@ fn read_yn() -> bool {
     std::io::stdin().read_exact(&mut buf).ok();
 
     if let Some(ref orig) = original {
-        termios::tcsetattr(&borrowed, SetArg::TCSANOW, orig).ok();
+        termios::tcsetattr(borrowed, SetArg::TCSANOW, orig).ok();
     }
 
     buf[0] == b'y' || buf[0] == b'Y'
@@ -115,15 +113,17 @@ pub async fn enter(name: Option<String>, command: Option<Vec<String>>) -> Result
         let (reader, writer) = stream.into_split();
         let mut reader = BufReader::new(reader);
         let mut writer = BufWriter::new(writer);
-        let cwd = std::env::current_dir()?
-            .to_string_lossy()
-            .to_string();
-        write_control(&mut writer, &Request::SwitchSession {
-            from: current,
-            to: name,
-            command,
-            cwd,
-        }).await?;
+        let cwd = std::env::current_dir()?.to_string_lossy().to_string();
+        write_control(
+            &mut writer,
+            &Request::SwitchSession {
+                from: current,
+                to: name,
+                command,
+                cwd,
+            },
+        )
+        .await?;
         match read_frame(&mut reader).await? {
             Some(Frame::Control(payload)) => {
                 let response: Response = serde_json::from_slice(&payload)?;
@@ -179,9 +179,7 @@ pub async fn create_session(name: String, command: Option<Vec<String>>) -> Resul
     let mut reader = BufReader::new(reader);
     let mut writer = BufWriter::new(writer);
 
-    let cwd = std::env::current_dir()?
-        .to_string_lossy()
-        .to_string();
+    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
     write_control(&mut writer, &Request::CreateSession { name, command, cwd }).await?;
 
     match read_frame(&mut reader).await? {
@@ -229,7 +227,11 @@ pub async fn list_sessions() -> Result<()> {
                     }
                     let current = std::env::var("DRIP_SESSION").ok();
                     for s in sessions {
-                        let marker = if current.as_deref() == Some(&s.name) { "* " } else { "  " };
+                        let marker = if current.as_deref() == Some(&s.name) {
+                            "* "
+                        } else {
+                            "  "
+                        };
                         let state = match s.state {
                             SessionState::Running => {
                                 if s.attached {
@@ -325,7 +327,8 @@ pub async fn list_screens(name: String, index: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-pub const TERMINAL_RESET: &[u8] = b"\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l";
+pub const TERMINAL_RESET: &[u8] =
+    b"\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l";
 
 pub async fn get_screen(name: String, watch: bool) -> Result<()> {
     let stream = launch::connect().await?;
@@ -333,7 +336,14 @@ pub async fn get_screen(name: String, watch: bool) -> Result<()> {
     let mut reader = BufReader::new(reader);
     let mut writer = BufWriter::new(writer);
 
-    write_control(&mut writer, &Request::GetScreen { name: name.clone(), watch }).await?;
+    write_control(
+        &mut writer,
+        &Request::GetScreen {
+            name: name.clone(),
+            watch,
+        },
+    )
+    .await?;
 
     std::io::Write::write_all(&mut std::io::stdout(), TERMINAL_RESET).ok();
 
@@ -372,7 +382,16 @@ pub async fn get_log(name: String, raw: bool, follow: bool, since: Option<f64>) 
     let mut reader = BufReader::new(reader);
     let mut writer = BufWriter::new(writer);
 
-    write_control(&mut writer, &Request::GetLog { name: name.clone(), raw, follow, since }).await?;
+    write_control(
+        &mut writer,
+        &Request::GetLog {
+            name: name.clone(),
+            raw,
+            follow,
+            since,
+        },
+    )
+    .await?;
 
     loop {
         match read_frame(&mut reader).await? {
@@ -409,7 +428,14 @@ pub async fn send_input(name: String, input: String, raw: bool) -> Result<()> {
         data.push(b'\r');
     }
 
-    write_control(&mut writer, &Request::SendInput { name: name.clone(), data }).await?;
+    write_control(
+        &mut writer,
+        &Request::SendInput {
+            name: name.clone(),
+            data,
+        },
+    )
+    .await?;
 
     match read_frame(&mut reader).await? {
         Some(Frame::Control(payload)) => {

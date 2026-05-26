@@ -107,7 +107,10 @@ mod tests {
     fn scrolling_does_not_duplicate() {
         let old = "line1\nline2\nline3\nCurrent state\nstatus bar";
         let new = "line3\nCurrent state\nThe working tree has changes.\nstatus bar";
-        assert_eq!(inserted_lines(old, new), vec!["The working tree has changes."]);
+        assert_eq!(
+            inserted_lines(old, new),
+            vec!["The working tree has changes."]
+        );
     }
 
     #[test]

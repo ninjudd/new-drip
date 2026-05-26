@@ -122,9 +122,8 @@ async fn reap_children(sessions: Sessions) {
         }
 
         // Remove exited sessions with no clients
-        sessions.retain(|_, s| {
-            !(matches!(s.state, SessionState::Exited(_)) && s.client_count == 0)
-        });
+        sessions
+            .retain(|_, s| !(matches!(s.state, SessionState::Exited(_)) && s.client_count == 0));
 
         if sessions.is_empty() {
             let _ = std::fs::remove_file(socket_path());
@@ -182,7 +181,7 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     let fg_pid = procinfo::get_foreground_pid(s.master_fd);
                     let cwd = fg_pid.and_then(procinfo::get_cwd);
                     let fg_command = fg_pid.and_then(procinfo::get_name);
-                    let git_branch = cwd.as_ref().and_then(procinfo::get_git_branch);
+                    let git_branch = cwd.as_ref().and_then(|p| procinfo::get_git_branch(p));
 
                     SessionInfo {
                         name: s.name.clone(),
@@ -203,9 +202,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
         Request::ListScreens { name } => {
             let dir = crate::common::screens_dir(&name);
             if !dir.exists() {
-                write_control(&mut writer, &Response::Error {
-                    message: format!("session '{}' not found", name),
-                }).await?;
+                write_control(
+                    &mut writer,
+                    &Response::Error {
+                        message: format!("session '{}' not found", name),
+                    },
+                )
+                .await?;
             } else {
                 let mut entries: Vec<_> = std::fs::read_dir(&dir)
                     .into_iter()
@@ -219,9 +222,14 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     .enumerate()
                     .map(|(i, e)| {
                         let content = std::fs::read_to_string(e.path()).unwrap_or_default();
-                        let ts = e.metadata()
+                        let ts = e
+                            .metadata()
                             .and_then(|m| m.modified())
-                            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64())
+                            .map(|t| {
+                                t.duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs_f64()
+                            })
                             .unwrap_or(0.0);
                         ScreenEntry {
                             index: i,
@@ -242,9 +250,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     write_control(&mut writer, &Response::ScreenData { content }).await?;
                 }
                 Err(_) => {
-                    write_control(&mut writer, &Response::Error {
-                        message: format!("screen {} not found", index),
-                    }).await?;
+                    write_control(
+                        &mut writer,
+                        &Response::Error {
+                            message: format!("screen {} not found", index),
+                        },
+                    )
+                    .await?;
                 }
             }
         }
@@ -254,12 +266,22 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 let sessions = sessions.lock().await;
                 match sessions.get(&name) {
                     Some(s) => {
-                        write_control(&mut writer, &Response::ScreenData { content: s.screen_text() }).await?;
+                        write_control(
+                            &mut writer,
+                            &Response::ScreenData {
+                                content: s.screen_text(),
+                            },
+                        )
+                        .await?;
                     }
                     None => {
-                        write_control(&mut writer, &Response::Error {
-                            message: format!("session '{}' not found", name),
-                        }).await?;
+                        write_control(
+                            &mut writer,
+                            &Response::Error {
+                                message: format!("session '{}' not found", name),
+                            },
+                        )
+                        .await?;
                     }
                 }
             } else {
@@ -267,13 +289,23 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     let sessions = sessions.lock().await;
                     match sessions.get(&name) {
                         Some(s) => {
-                            write_control(&mut writer, &Response::ScreenData { content: s.screen_text() }).await?;
+                            write_control(
+                                &mut writer,
+                                &Response::ScreenData {
+                                    content: s.screen_text(),
+                                },
+                            )
+                            .await?;
                             s.output_tx.subscribe()
                         }
                         None => {
-                            write_control(&mut writer, &Response::Error {
-                                message: format!("session '{}' not found", name),
-                            }).await?;
+                            write_control(
+                                &mut writer,
+                                &Response::Error {
+                                    message: format!("session '{}' not found", name),
+                                },
+                            )
+                            .await?;
                             return Ok(());
                         }
                     }
@@ -288,9 +320,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                                 match tokio::time::timeout(
                                     std::time::Duration::from_millis(500),
                                     output_rx.recv(),
-                                ).await {
+                                )
+                                .await
+                                {
                                     Ok(Ok(_)) => continue,
-                                    Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(_))) => continue,
+                                    Ok(Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                                        _,
+                                    ))) => continue,
                                     _ => break,
                                 }
                             }
@@ -302,7 +338,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                                 }
                             };
                             if current != last_screen {
-                                write_control(&mut writer, &Response::ScreenData { content: current.clone() }).await?;
+                                write_control(
+                                    &mut writer,
+                                    &Response::ScreenData {
+                                        content: current.clone(),
+                                    },
+                                )
+                                .await?;
                                 last_screen = current;
                             }
                         }
@@ -313,15 +355,21 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             }
         }
 
-        Request::GetLog { name, raw, follow, since } => {
+        Request::GetLog {
+            name,
+            raw,
+            follow,
+            since,
+        } => {
             let log_path = crate::common::log_path(&name);
 
             // Read existing log from disk
             let events = if log_path.exists() {
                 let content = std::fs::read_to_string(&log_path).unwrap_or_default();
-                content.lines()
+                content
+                    .lines()
                     .filter_map(|line| serde_json::from_str::<RecordEvent>(line).ok())
-                    .filter(|e| since.map_or(true, |ts| e.timestamp() >= ts))
+                    .filter(|e| since.is_none_or(|ts| e.timestamp() >= ts))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
@@ -336,24 +384,19 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 // Follow by watching log file for new lines
                 let output_rx = {
                     let sessions = sessions.lock().await;
-                    match sessions.get(&name) {
-                        Some(s) => Some(s.output_tx.subscribe()),
-                        None => None,
-                    }
+                    sessions.get(&name).map(|s| s.output_tx.subscribe())
                 };
                 if let Some(mut rx) = output_rx {
-                    let mut last_size = std::fs::metadata(&log_path)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
+                    let mut last_size = std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
                     loop {
                         match rx.recv().await {
                             Ok(_) => {
                                 tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-                                let current_size = std::fs::metadata(&log_path)
-                                    .map(|m| m.len())
-                                    .unwrap_or(0);
+                                let current_size =
+                                    std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
                                 if current_size > last_size {
-                                    let content = std::fs::read_to_string(&log_path).unwrap_or_default();
+                                    let content =
+                                        std::fs::read_to_string(&log_path).unwrap_or_default();
                                     let new_lines: String = content
                                         .bytes()
                                         .skip(last_size as usize)
@@ -365,7 +408,11 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                                         .collect();
                                     let formatted = format_events(&new_events, raw);
                                     if !formatted.is_empty() {
-                                        write_control(&mut writer, &Response::LogData { content: formatted }).await?;
+                                        write_control(
+                                            &mut writer,
+                                            &Response::LogData { content: formatted },
+                                        )
+                                        .await?;
                                     }
                                     last_size = current_size;
                                 }
@@ -394,7 +441,12 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             }
         }
 
-        Request::SwitchSession { from, to, command, cwd } => {
+        Request::SwitchSession {
+            from,
+            to,
+            command,
+            cwd,
+        } => {
             let mut sessions = sessions.lock().await;
 
             if !sessions.contains_key(&to) {
@@ -403,9 +455,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                         sessions.insert(to.clone(), session);
                     }
                     Err(e) => {
-                        write_control(&mut writer, &Response::Error {
-                            message: format!("failed to create session: {}", e),
-                        }).await?;
+                        write_control(
+                            &mut writer,
+                            &Response::Error {
+                                message: format!("failed to create session: {}", e),
+                            },
+                        )
+                        .await?;
                         return Ok(());
                     }
                 }
@@ -428,9 +484,13 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 session.switch_notify.notify_waiters();
                 write_control(&mut writer, &Response::Ok).await?;
             } else {
-                write_control(&mut writer, &Response::Error {
-                    message: format!("session '{}' not found", from),
-                }).await?;
+                write_control(
+                    &mut writer,
+                    &Response::Error {
+                        message: format!("session '{}' not found", from),
+                    },
+                )
+                .await?;
             }
         }
 
@@ -517,7 +577,16 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
             let mut first = true;
 
             loop {
-                let (screen_data, mut output_rx, input_tx, detach_notify, switch_notify, switch_target, readonly, readonly_flag) = {
+                let (
+                    screen_data,
+                    mut output_rx,
+                    input_tx,
+                    detach_notify,
+                    switch_notify,
+                    switch_target,
+                    readonly,
+                    readonly_flag,
+                ) = {
                     let mut sessions = sessions.lock().await;
                     let session = match sessions.get_mut(&current_name) {
                         Some(s) => s,
@@ -550,21 +619,44 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                     let detach = session.detach_notify.clone();
                     let sw_notify = session.switch_notify.clone();
                     let sw_target = session.switch_target.clone();
-                    (screen, rx, tx, detach, sw_notify, sw_target, readonly, readonly_flag)
+                    (
+                        screen,
+                        rx,
+                        tx,
+                        detach,
+                        sw_notify,
+                        sw_target,
+                        readonly,
+                        readonly_flag,
+                    )
                 };
 
                 if first {
                     write_control(&mut writer, &Response::Attached { readonly }).await?;
                     first = false;
                 }
-                let screen_data = if readonly { strip_sgr(&screen_data) } else { screen_data };
+                let screen_data = if readonly {
+                    strip_sgr(&screen_data)
+                } else {
+                    screen_data
+                };
                 write_frame(&mut writer, FRAME_DATA, &screen_data).await?;
 
                 let (result, r, w) = stream_session(
-                    reader, writer, &mut output_rx, &input_tx,
-                    &detach_notify, &switch_notify, &switch_target, &readonly_flag,
-                    sessions.clone(), current_name.clone(), current_cols, current_rows,
-                ).await?;
+                    reader,
+                    writer,
+                    &mut output_rx,
+                    &input_tx,
+                    &detach_notify,
+                    &switch_notify,
+                    &switch_target,
+                    &readonly_flag,
+                    sessions.clone(),
+                    current_name.clone(),
+                    current_cols,
+                    current_rows,
+                )
+                .await?;
                 reader = r;
                 writer = w;
 
@@ -663,7 +755,7 @@ fn is_only_shell_running(session: &Session) -> bool {
 }
 
 fn try_gc_session(sessions: &mut HashMap<String, Session>, name: &str) {
-    let should_kill = sessions.get(name).map_or(false, |s| {
+    let should_kill = sessions.get(name).is_some_and(|s| {
         is_numbered_session(name)
             && s.client_count == 0
             && matches!(s.state, SessionState::Running)
@@ -685,6 +777,7 @@ enum StreamExit {
 type SocketReader = BufReader<tokio::net::unix::OwnedReadHalf>;
 type SocketWriter = BufWriter<tokio::net::unix::OwnedWriteHalf>;
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_session(
     mut reader: SocketReader,
     mut writer: SocketWriter,
