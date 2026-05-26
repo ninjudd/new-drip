@@ -585,6 +585,8 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                         }
                     }
 
+                    try_gc_session(&mut sessions, &current_name);
+
                     let should_exit = !sessions.is_empty()
                         && sessions.values().all(|s| {
                             matches!(s.state, SessionState::Exited(_)) && s.client_count == 0
@@ -636,6 +638,35 @@ fn strip_sgr(data: &[u8]) -> Vec<u8> {
         }
     }
     out
+}
+
+fn is_numbered_session(name: &str) -> bool {
+    name.rsplit_once('.')
+        .map(|(_, suffix)| suffix.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(false)
+}
+
+fn is_only_shell_running(session: &Session) -> bool {
+    let fg_pid = procinfo::get_foreground_pid(session.master_fd);
+    match fg_pid {
+        Some(pid) => pid == session.pid.as_raw(),
+        None => true,
+    }
+}
+
+fn try_gc_session(sessions: &mut HashMap<String, Session>, name: &str) {
+    let should_kill = sessions.get(name).map_or(false, |s| {
+        is_numbered_session(name)
+            && s.client_count == 0
+            && matches!(s.state, SessionState::Running)
+            && is_only_shell_running(s)
+    });
+    if should_kill {
+        if let Some(session) = sessions.get(name) {
+            nix::sys::signal::kill(session.pid, nix::sys::signal::Signal::SIGHUP).ok();
+        }
+        sessions.remove(name);
+    }
 }
 
 enum StreamExit {
