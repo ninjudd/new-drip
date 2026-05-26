@@ -31,7 +31,9 @@ That's it. If a session exists for this workspace, you're attached. If not, one 
 
 **`trip enter [name]`** — Enter the canonical workspace session. Creates it if missing, attaches if it exists. Derives the session name from your git repo root when no name is given. If someone else is attached, prompts to take over.
 
-**`trip new [name]`** — Open a fresh durable terminal. Auto-numbered (`.1`, `.2`, `.3`). Attaches immediately. Cleaned up automatically when you detach if only the shell is running.
+**`trip return`** — Return to the previous session. Opposite of `trip enter` — pops the session stack.
+
+**`trip new [name]`** — Open a fresh durable terminal. Auto-numbered (`.1`, `.2`, `.3`). Attaches immediately. Kept alive in the background; cleaned up when the shell exits.
 
 **`trip create <name> [-- command]`** — Create a session without attaching. For scripting and automation.
 
@@ -64,6 +66,10 @@ That's it. If a session exists for this workspace, you're attached. If not, one 
 **`trip send <name> <input>`** — Send input to a session without attaching. Auto-appends Enter. Use `--raw` for exact bytes.
 
 **`trip current`** — Print the current session name (exit 1 if not in a session).
+
+### Shell integration
+
+`./install.sh` adds a shell hook to `.zshrc` and `.bashrc` that runs `trip init` before each command. This keeps terminal environment variables (`TERM_PROGRAM`, `COLORTERM`, etc.) in sync when you switch between different terminal apps while attached to the same session.
 
 ## How it works
 
@@ -99,7 +105,7 @@ One writer per session. Additional clients attach read-only (monochrome output, 
 
 ### Session switching
 
-`trip enter` from inside a trip session seamlessly switches your terminal to the target session — no nesting, no new processes. The daemon redirects the attach client's stream.
+`trip enter` from inside a trip session seamlessly switches your terminal to the target session — no nesting, no new processes. The daemon redirects the attach client's stream. `trip return` pops back to the previous session. Enter and return form a stack, so you can nest switches and unwind them.
 
 ## Design philosophy
 
