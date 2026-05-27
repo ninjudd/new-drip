@@ -61,7 +61,14 @@ pub fn derive_session_name() -> Result<String> {
     if !home.is_empty() && path.starts_with(&home) {
         let rel = &path[home.len()..];
         let rel = rel.strip_prefix('/').unwrap_or(rel);
-        Ok(rel.to_string())
+        if rel.is_empty() {
+            Ok(PathBuf::from(&home)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "home".into()))
+        } else {
+            Ok(rel.to_string())
+        }
     } else {
         Ok(base
             .file_name()
