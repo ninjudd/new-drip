@@ -161,21 +161,22 @@ impl Session {
 
                 let created_at = recording::now_ts() as u64;
 
-                // Set up session directories
-                let screens_dir = crate::common::screens_dir(&name);
-                std::fs::create_dir_all(&screens_dir).ok();
+                // Set up session directory
+                let session_dir = crate::common::session_dir(&name);
+                std::fs::create_dir_all(&session_dir).ok();
                 let log_path = crate::common::log_path(&name);
 
                 // Spawn the PTY I/O task
                 let output_tx_clone = output_tx.clone();
                 let parser_clone = parser.clone();
+                let pty_session_name = name.clone();
                 tokio::spawn(async move {
                     pty_io_loop(
                         async_fd,
                         input_rx,
                         output_tx_clone,
                         parser_clone,
-                        screens_dir,
+                        pty_session_name,
                         log_path,
                     )
                     .await;
@@ -248,29 +249,34 @@ impl Session {
 
 fn take_snapshot(
     parser: &std::sync::Arc<std::sync::Mutex<vt100::Parser>>,
-    screens_dir: &std::path::Path,
+    session_name: &str,
     log_path: &std::path::Path,
-    screen_seq: &mut u32,
     last_screen: &mut String,
 ) {
-    let screen_text = {
-        let p = parser.lock().unwrap();
-        let screen = p.screen();
-        let (cursor_row, _) = screen.cursor_position();
-        let text = screen.contents();
-        text.lines()
-            .enumerate()
-            .filter(|(i, _)| *i != cursor_row as usize)
-            .map(|(_, l)| l)
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let p = parser.lock().unwrap();
+    let screen = p.screen();
+
+    if !screen.alternate_screen() {
+        return;
+    }
+
+    if super::agent::agent_config_path(session_name).exists() {
+        return;
+    }
+
+    let (cursor_row, _) = screen.cursor_position();
+    let screen_text = screen
+        .contents()
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| *i != cursor_row as usize)
+        .map(|(_, l)| l)
+        .collect::<Vec<_>>()
+        .join("\n");
+    drop(p);
+
     let filtered = recording::clean_screen(&screen_text);
     if filtered != *last_screen {
-        let path = screens_dir.join(format!("{:04}.txt", *screen_seq));
-        std::fs::write(&path, &filtered).ok();
-        *screen_seq += 1;
-
         let inserted = diff::inserted_lines(last_screen, &filtered);
         if !inserted.is_empty() {
             let diff_text = recording::clean_screen(&inserted.join("\n"));
@@ -293,7 +299,7 @@ async fn pty_io_loop(
     mut input_rx: mpsc::Receiver<SessionCommand>,
     output_tx: broadcast::Sender<Vec<u8>>,
     parser: std::sync::Arc<std::sync::Mutex<vt100::Parser>>,
-    screens_dir: std::path::PathBuf,
+    session_name: String,
     log_path: std::path::PathBuf,
 ) {
     use std::time::Duration;
@@ -306,7 +312,6 @@ async fn pty_io_loop(
     let mut max_deadline = Box::pin(sleep(Duration::from_secs(86400)));
     let mut snapshot_pending = false;
     let mut last_screen = String::new();
-    let mut screen_seq: u32 = 0;
 
     loop {
         tokio::select! {
@@ -327,13 +332,15 @@ async fn pty_io_loop(
                             Ok(Ok(0)) => break,
                             Ok(Ok(n)) => {
                                 let data = buf[..n].to_vec();
-                                recording::append_event(&log_path, &RecordEvent::Output {
-                                    t: recording::now_ts(),
-                                    data: String::from_utf8_lossy(&data).into_owned(),
-                                });
                                 {
                                     let mut p = parser.lock().unwrap();
                                     p.process(&data);
+                                    if !p.screen().alternate_screen() {
+                                        recording::append_event(&log_path, &RecordEvent::Output {
+                                            t: recording::now_ts(),
+                                            data: String::from_utf8_lossy(&data).into_owned(),
+                                        });
+                                    }
                                 }
                                 let _ = output_tx.send(data);
                                 // Reset idle timer; start max timer if not already running
@@ -352,14 +359,14 @@ async fn pty_io_loop(
             }
 
             _ = &mut idle_deadline, if snapshot_pending => {
-                take_snapshot(&parser, &screens_dir, &log_path, &mut screen_seq, &mut last_screen);
+                take_snapshot(&parser, &session_name, &log_path, &mut last_screen);
                 snapshot_pending = false;
                 idle_deadline.as_mut().reset(Instant::now() + Duration::from_secs(86400));
                 max_deadline.as_mut().reset(Instant::now() + Duration::from_secs(86400));
             }
 
             _ = &mut max_deadline, if snapshot_pending => {
-                take_snapshot(&parser, &screens_dir, &log_path, &mut screen_seq, &mut last_screen);
+                take_snapshot(&parser, &session_name, &log_path, &mut last_screen);
                 snapshot_pending = false;
                 idle_deadline.as_mut().reset(Instant::now() + Duration::from_secs(86400));
                 max_deadline.as_mut().reset(Instant::now() + Duration::from_secs(86400));

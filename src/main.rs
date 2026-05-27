@@ -57,9 +57,6 @@ async fn main() -> anyhow::Result<()> {
             Ok(name) => println!("{}", name),
             Err(_) => std::process::exit(1),
         },
-        Command::Screens { name, index } => {
-            client::list_screens(name, index).await?;
-        }
         Command::Screen { name, watch } => {
             client::get_screen(name, watch).await?;
         }

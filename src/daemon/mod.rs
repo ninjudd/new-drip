@@ -18,8 +18,8 @@ use tokio::sync::Mutex;
 
 use crate::common::{lock_path, socket_path, terminal_env_path, trip_dir};
 use protocol::{
-    read_frame, write_control, write_frame, Frame, Request, Response, ScreenEntry, SessionInfo,
-    SessionState, FRAME_DATA,
+    read_frame, write_control, write_frame, Frame, Request, Response, SessionInfo, SessionState,
+    FRAME_DATA,
 };
 use recording::RecordEvent;
 use session::{Session, SessionCommand};
@@ -33,17 +33,13 @@ fn format_events(events: &[RecordEvent], raw: bool) -> String {
             .join("\n")
             + if events.is_empty() { "" } else { "\n" }
     } else {
-        let mut in_agent = false;
         let mut out = String::new();
         for event in events {
             match event {
-                RecordEvent::AgentSessionStart { .. } => {
-                    in_agent = true;
+                RecordEvent::Output { data, .. } => {
+                    out.push_str(&recording::strip_escapes(data));
                 }
-                RecordEvent::AgentSessionEnd { .. } => {
-                    in_agent = false;
-                }
-                RecordEvent::Screen { text, .. } if !in_agent => {
+                RecordEvent::Screen { text, .. } => {
                     if !out.is_empty() {
                         out.push('\n');
                     }
@@ -103,20 +99,6 @@ fn format_events(events: &[RecordEvent], raw: bool) -> String {
         }
         out
     }
-}
-
-fn format_timestamp(t: f64) -> String {
-    use std::time::{Duration, UNIX_EPOCH};
-    let time = UNIX_EPOCH + Duration::from_secs_f64(t);
-    let elapsed = time
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    // Use libc localtime for proper timezone
-    let mut tm: nix::libc::tm = unsafe { std::mem::zeroed() };
-    let time_t = elapsed as nix::libc::time_t;
-    unsafe { nix::libc::localtime_r(&time_t, &mut tm) };
-    format!("{:02}:{:02}:{:02}", tm.tm_hour, tm.tm_min, tm.tm_sec)
 }
 
 type Sessions = Arc<Mutex<HashMap<String, Session>>>;
@@ -266,68 +248,6 @@ async fn handle_client(stream: UnixStream, sessions: Sessions) -> Result<()> {
                 })
                 .collect();
             write_control(&mut writer, &Response::SessionList { sessions: list }).await?;
-        }
-
-        Request::ListScreens { name } => {
-            let dir = crate::common::screens_dir(&name);
-            if !dir.exists() {
-                write_control(
-                    &mut writer,
-                    &Response::Error {
-                        message: format!("session '{}' not found", name),
-                    },
-                )
-                .await?;
-            } else {
-                let mut entries: Vec<_> = std::fs::read_dir(&dir)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().map(|x| x == "txt").unwrap_or(false))
-                    .collect();
-                entries.sort_by_key(|e| e.file_name());
-                let screens: Vec<ScreenEntry> = entries
-                    .iter()
-                    .enumerate()
-                    .map(|(i, e)| {
-                        let content = std::fs::read_to_string(e.path()).unwrap_or_default();
-                        let ts = e
-                            .metadata()
-                            .and_then(|m| m.modified())
-                            .map(|t| {
-                                t.duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs_f64()
-                            })
-                            .unwrap_or(0.0);
-                        ScreenEntry {
-                            index: i,
-                            timestamp: format_timestamp(ts),
-                            lines: content.lines().count(),
-                        }
-                    })
-                    .collect();
-                write_control(&mut writer, &Response::ScreenList { screens }).await?;
-            }
-        }
-
-        Request::GetScreenAt { name, index } => {
-            let dir = crate::common::screens_dir(&name);
-            let path = dir.join(format!("{:04}.txt", index));
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    write_control(&mut writer, &Response::ScreenData { content }).await?;
-                }
-                Err(_) => {
-                    write_control(
-                        &mut writer,
-                        &Response::Error {
-                            message: format!("screen {} not found", index),
-                        },
-                    )
-                    .await?;
-                }
-            }
         }
 
         Request::GetScreen { name, watch } => {

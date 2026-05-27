@@ -336,56 +336,6 @@ pub async fn list_sessions(all: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn list_screens(name: String, index: Option<usize>) -> Result<()> {
-    let stream = launch::connect().await?;
-    let (reader, writer) = stream.into_split();
-    let mut reader = BufReader::new(reader);
-    let mut writer = BufWriter::new(writer);
-
-    match index {
-        None => {
-            write_control(&mut writer, &Request::ListScreens { name }).await?;
-            match read_frame(&mut reader).await? {
-                Some(Frame::Control(payload)) => {
-                    let response: Response = serde_json::from_slice(&payload)?;
-                    match response {
-                        Response::ScreenList { screens } => {
-                            if screens.is_empty() {
-                                println!("no screens captured yet");
-                                return Ok(());
-                            }
-                            for s in screens {
-                                println!("{:<6} {:<12} {} lines", s.index, s.timestamp, s.lines);
-                            }
-                        }
-                        Response::Error { message } => anyhow::bail!("{}", message),
-                        _ => anyhow::bail!("unexpected response"),
-                    }
-                }
-                _ => anyhow::bail!("unexpected frame"),
-            }
-        }
-        Some(idx) => {
-            write_control(&mut writer, &Request::GetScreenAt { name, index: idx }).await?;
-            match read_frame(&mut reader).await? {
-                Some(Frame::Control(payload)) => {
-                    let response: Response = serde_json::from_slice(&payload)?;
-                    match response {
-                        Response::ScreenData { content } => {
-                            println!("{}", content);
-                        }
-                        Response::Error { message } => anyhow::bail!("{}", message),
-                        _ => anyhow::bail!("unexpected response"),
-                    }
-                }
-                _ => anyhow::bail!("unexpected frame"),
-            }
-        }
-    }
-
-    Ok(())
-}
-
 pub const TERMINAL_RESET: &[u8] =
     b"\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[H\x1b[2J";
 

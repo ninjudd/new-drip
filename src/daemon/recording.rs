@@ -94,6 +94,53 @@ pub fn append_event(log_path: &std::path::Path, event: &RecordEvent) {
     }
 }
 
+pub fn strip_escapes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            match chars.peek() {
+                Some('[') => {
+                    chars.next();
+                    while let Some(&ch) = chars.peek() {
+                        chars.next();
+                        if ch.is_ascii_alphabetic() || ch == '@' || ch == '`' {
+                            break;
+                        }
+                    }
+                }
+                Some(']') => {
+                    chars.next();
+                    while let Some(&ch) = chars.peek() {
+                        chars.next();
+                        if ch == '\x07' {
+                            break;
+                        }
+                        if ch == '\x1b' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                Some('(' | ')' | '*' | '+') => {
+                    chars.next();
+                    chars.next();
+                }
+                _ => {
+                    chars.next();
+                }
+            }
+        } else if c == '\r' {
+            continue;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn is_decorative(line: &str) -> bool {
     let trimmed = line.trim();
     !trimmed.is_empty()

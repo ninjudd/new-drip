@@ -17,10 +17,6 @@ pub fn session_dir(name: &str) -> PathBuf {
     trip_dir().join("sessions").join(name)
 }
 
-pub fn screens_dir(name: &str) -> PathBuf {
-    session_dir(name).join("screens")
-}
-
 pub fn log_path(name: &str) -> PathBuf {
     session_dir(name).join("log.jsonl")
 }
